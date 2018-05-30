@@ -1,0 +1,1053 @@
+<!doctype html>
+<html>
+
+
+
+	<head>
+
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<title>Cloud Foundry CLI Cheatsheet</title>
+
+
+		<link rel="stylesheet" href="css/reveal.css">
+		<link rel="stylesheet" href="css/theme/personal.css">
+
+		<!-- Theme used for syntax highlighting of code -->
+
+		<link rel="stylesheet" href="lib/css/zenburn.css">
+
+		<!-- Printing and PDF exports -->
+
+		<script>
+			            var link = document.createElement('link');
+			            link.rel = 'stylesheet';
+			            link.type = 'text/css';
+			            link.href = window.location.search.match(/print-pdf/gi) ? 'css/print/pdf.css' : 'css/print/paper.css';
+			            document.getElementsByTagName('head')[0].appendChild(link);
+		</script>
+
+		<style>
+			html.resizeimg .slide-background {
+				background-size: 1400px 650px !important;
+			}
+
+			html.dimbg .slide-background {
+				opacity: 0.25 !important;
+			}
+
+			html.halfdimbg .slide-background {
+				opacity: 0.5 !important;
+			}
+
+		</style>
+		</head>
+
+
+
+	<body>
+
+		<div class="reveal">
+
+			<div class="slides">
+
+				<section data-background-color="#008085" data-background-image="resources/cf_vertical_small_logo.png"
+				 data-state="halfdimbg" data-markdown>
+
+					<textarea data-template>
+                            ## Cloud Foundry CLI Cheatsheet
+                            <br><br>
+                            <div align="right">
+                                by **Adina Benea** <br>
+                                _Cloud Native Software Engineer @ [Armakuni](https://www.armakuni.com/)_
+                            </div>
+                        </textarea>
+				</section>
+
+
+				<section data-background-color="#008085" data-state="resizeimg" data-background-image="resources/cf_internals.png"
+				 data-markdown>
+					Note:                     ### Elastic Runtime Components/Architecture
+
+					<br> * **Go Router**: The HTTP server that responds to all incoming traffic (CF CLI requests, request to apps, etc). It
+					maintains a dynamic routing table constructed from information it receives from NATS.
+
+					<br> * **Consul**: Service discovery service, it acts like a DNS service so CF components can find eachother using hard-coded
+					internal hostnames.
+
+					<br>
+					<br> Elastic Runtime Subsystems:
+
+					<br> #### **Diego**
+					<br> The container scheduling subsystem of CF. It schedules tasks and long-running processes (LRPs); these are run within
+					an immutable container (once it gets created it won’t get changed). The API handles communication between Diego and
+					the Cloud Controller and the Cells run the application containers.
+					<br>
+					<br> `Task` = app guaranteed to run at most once (e.g.: a PCF example is staging an app)
+					<br> `LRP` = web app that can have multiple instances
+					<br> Containers are run within a `cell` = an OS.
+					<br> PCF has a pool of cells, many VMs are of type cell and your app instances get distributed across those.
+					<br> * Containers are managed by **Garden** = an interface with many diff backends, like Linux or Windows, to support diff
+					types of platforms.
+					<br> * **Rep**: The process running on the cell continuously reporting what is going on on a cell. It represents the cell
+					in the `BBS`/`auctions`.
+					<br> An `auction` = is held to bid on executing a task or LRP
+					<br> * **Executor**: Rep subprocess that manages container allocations                     on the cell; it also streams
+					`stdout` and `stderr` to `Metron`.
+					<br> * **Metron**: Process living on the cell and forwarding logs                     to the Loggregator susbsytem.
+					<br> * **BBS (Bulletin Board System)**: The API to access the Diego DB for tasks and LRPs; data                     is persisted
+					to `etcd`.
+					<br> * **etcd database**: The Diego database for BBS tasks and LRPs.
+					<br> * **Brain**: Main unit responsible for holding the auction, composed of 2 subprocesses:
+					<br> `Auctioneer` = holds auctions for tasks and LRPs
+					<br> `Converger` = reconciles desired LRPs vs actual LRPs through auctions
+					<br> * **UAA**: User Account and Authentication. Various                     requests (login credentials, OAuth tokens,
+					etc.) are authenticated against the UAA.
+
+					<br> #### **Loggregator**
+					<br> The logging subsystem consists of multiple VMs such as the `Doppler`, `Adapter`, `Log-api` and the `Scheduler`. Various
+					parts of this system handle collecting logs from the applications, sending the logs off to user-configured remote logging
+					services and responding to `cf logs`.
+					<br> * **Doppler**: App syslog drains allowing you to drain logs to a 3rd party log manager system (like Splunk or Papertrail)
+					<br> * **Traffic Controller**: Component responsible for handling requests such as `cf logs`; this exposes a websocket endpoint
+					called the `firehose`.
+					<br> * **Firehose**: Another way to plug in to the loggregator system via this websocket endpoint                     that
+					exposes app logs, container metrics and ER (Elastic Runtime) component metrics; it does not include ER component logs.
+					<br> * **Nozzles**: Firehose output consumers where logs are plugged into transformed to whatever data format you need.
+
+					<br> #### **Cloud Controller API**
+					<br> The Cloud Foundry API. managing the ER. All CF CLI requests are handled by it, allowing you to deploy your app and
+					manage your system.
+					<br> * **CC_DB**: Cloud Controller Database where the CC persists Org/Space/App data.
+					<br> * **Blob Store**: The place where CC persists app packages and droplets; it’s a means to optimise the system so that
+					you don’t have to do those tasks over and over again.
+					<br> * **CC-Bridge**: The place where app specific messages/domain are translated into Diego tasks                     &
+					LRPs generic language.
+
+					<br> #### **Routing**
+					<br> It routes traffic to the appropriate component.
+					<br>* **NATS**: Message bus, some components report runtime events here. The most important one probably is routing information,
+					the Diego cells constantly update the Router with a list of applications and what hosntnames are registered to them.
+
+					<br> #### Storage
+					<br> * **etcd database**: The Diego database for BBS tasks and LRPs.
+					<br> * **CC_DB**: The DB instance serving the Cloud Controller and the UAA. It can be substituted                     with
+					any remote DB service such as Amazon RDS.
+					<br> * **Blob store**: The Cloud Controller stores the prepared application images (droplets) in the blob store. Can be
+					substituted with network filesystems (NFS, WebDav) or S3-compatible APIs.
+				</section>
+
+
+				<section>
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						### Login
+					</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Specify API endpoint
+						<br>
+						<p>
+
+							<code data-trim>
+                                cf api api_endpoint.pivotal.io
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Login using your user credentials
+						<br>
+						<p>
+
+							<code data-trim>
+                                cf login -a api_endpoint.pivotal.io
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### View your target
+						<br> Review your current API endpoint, user, org and space:
+						<p>
+
+							<code data-trim>
+                                cf target
+                            </code>
+						</p>
+						</section>
+					</section>
+
+
+				<section>
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						### Managing your app
+					</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Deploy your app
+						<br>
+						<p>
+
+							<code data-trim>
+                                cf push app_name \
+                                [-p ./app.jar] \
+                                [-m 128M] \
+                                [--random-route] \
+                                [--no-start]
+                            </code>
+						</p>
+
+
+						<br> If the app has the artifact path and the required memory specified via a _manifest.yml_ file, we simply need to push
+						the app with no other params.                         Note:                         - `-p` tells the cf command what
+						file to upload
+						<br> - `--random-route` assigns a random route to the app, as opposed to the default route `app_name.cfapps.io`
+						<br> - `--no-start` tells the cf command not to start the app
+						<br> For Java apps, specify the **java_buildpack** buildpack entry inside your manifest file.
+					</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Start your app
+						<br>
+						<p>
+
+							<code data-trim>
+                                cf start app_name
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Restart your app
+						<br> Restarting an app makes sure that the environment variables (**VCAP_SERVICES**) are set/injected correctly in the
+						app container.
+						<p>
+
+							<code data-trim>
+                                cf restart app_name
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Scale up/out your app
+						<br>
+						<p>
+
+							<code data-trim>
+                                cf scale app_name \
+                                -m memory_size_scale_up \
+                                -i instances_scale_out
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### View your deployed apps
+						<br>
+						<p>
+
+							<code data-trim>
+                                cf apps
+                            </code>
+						</p>
+
+						Note:                         View all apps deployed in your org and space.
+					</section>
+					</section>
+
+
+				<section>
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						### Marketplace
+					</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### View available services in the marketplace
+						<br>
+						<p>
+
+							<code data-trim>
+                                cf m
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Get service plan info for a marketplace service
+						<br>
+						<p>
+
+							<code data-trim>
+                                cf m -s market_service_name
+                            </code>
+						</p>
+						</section>
+					</section>
+
+
+				<section>
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						### Environment Variables (VCAP_SERVICES)
+					</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### View your app's env variables
+						<br>
+						<p>
+
+							<code data-trim>
+                                cf env app_name
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Set an env variable
+						<br>
+						<p>
+
+							<code data-trim>
+                                cf set-env app_name env_name env_value
+
+                                # make sure to restart your app
+                                # for the env variables to take effect
+                                cf restart app_name
+                            </code>
+						</p>
+						</section>
+					</section>
+
+
+				<section>
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						### Wiring a service to an app
+					</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Provision a service intance
+						<br>
+						<p>
+
+							<code data-trim>
+                                cf create-service market_service_name
+                                market_service_plan_name service_name
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Bind a service to your app
+						<br>
+						<p>
+
+							<code data-trim>
+                                cf bind-service app_name service_name
+
+                                # you will need to restart your app
+                                # so that the app can have access to the env variables
+                                cf restart app_name
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### View created services
+						<br>
+						<p>
+
+							<code data-trim>
+                                cf services
+                            </code>
+						</p>
+						</section>
+					</section>
+
+
+				<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+					### Wiring apps together
+					<br> A user-provided service instance can be used to connect to any legacy system within your CF.
+					<p>
+
+						<code data-trim>
+                            # hook an app to another
+                            cf create-user-provided-service user_provided_service_name \
+                            -p uri
+                            # uri will wait for the app url,
+                            # e.g.: http://uri_to_reach_your_app
+
+                            # now bind the app you want to to this user-provided service
+                            cf bind-service app_to_hook_name user_provided_service_name
+
+                            cf restart app_to_hook_name
+                        </code>
+					</p>
+
+					Note:                     Java apps can read env variables via a Java Buildpack feature called **Auto-Reconfiguration**
+					that will automatically re-write bean definitions to connect with services bound to an app.
+				</section>
+
+
+				<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+					### Rebuild app droplet
+					<br> Application droplets need to be rebuilt when there are new dependencies to pull in:
+					<p>
+
+						<code data-trim>
+                            cf restage app_names
+                        </code>
+					</p>
+					</section>
+
+
+				<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+					### Reverse-engineer a manifest from a running app
+					<br> You can create/save an app manifest for an app that has been pushed successfully:
+					<p>
+
+						<code data-trim>
+                            cf create-app-manfiest app_name \
+                            [-p ./path_to_manifest/manifest.yml]
+                        </code>
+					</p>
+
+					Note:                     Manifests help you push your app by allowing you to specify all your app metadata
+					and associated services and env variables in this **manifest.yml** file instead of on the command line.
+				</section>
+
+
+				<section>
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						### Security Groups
+					</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Create an app security group
+						<br>
+						<p>
+
+							<code data-trim>
+                            cf create-security-group sg_name path_to_sg_json_file
+
+                            # bind the SG to an org and space
+                            cf bind-security-group sg_name org_name space_name
+
+                            # for changes to take effect, restart the app
+                            cf restart app_name
+                        </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### See all security groups running & bound to your targeted ops and space
+						<br>
+						<p>
+
+							<code data-trim>
+                            cf security-groups
+                        </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Check the definition for a security group
+						<br>
+						<p>
+
+							<code data-trim>
+                            cf security-group security_group_name
+                        </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						### Staging Security Groups                     Note:                     Staging security groups bound
+						during staging when the app droplet gets created.
+					</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### See all staging security groups
+						<br>
+						<p>
+
+							<code>
+                            cf staging-security-groups
+                        </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						### Running Security Group
+					</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### See all system wide running security groups
+						<br>
+						<p>
+
+							<code>
+                            cf running-security-groups
+                        </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Lock down all of the egress traffic for an app
+						<br>
+						<p>
+
+							<code data-trim>
+                            cf unbind-running-security-group app_security_group_name
+
+                            # restart your app to see the effects
+                            cf restart app_name
+                        </code>
+						</p>
+						</section>
+					</section>
+
+
+				<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+					### Create a log drain
+					<br> PCF does not persist logs. For long term storage of logs for log analysis, use 3rd party tools via CF's capability
+					to drain app logs to some destination.
+					<br>
+					<p>
+
+						<code data-trim>
+                            cf create-user-provided-service app_name-log-drain \
+                            -l syslog://3rd_party_syslog_endpoint
+                            # `3rd_party_syslog_endpoint = host:port`
+                            # of external 3rd party syslog service,
+                            # like Papertrail or Splunk
+
+                            cf bind-service app_name app_name-log-drain
+
+                            cf restart app_name
+                        </code>
+					</p>
+					</section>
+
+
+				<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+					### View all routes in your org and space
+					<br>
+					<p>
+
+						<code data-trim>
+                            cf routes
+                        </code>
+					</p>
+					</section>
+
+
+				<section>
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						### Blue-Green Deployments                          Note:                          - used to achieve
+						zero downtime when upgrading, when managing multiple versions of your app, traffic being devided up by the number of
+						instances bound to the route.
+					</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+
+						<br> Push your new app version:
+						<p>
+
+							<code>
+                                # scale out your app to multiple instances
+                                cf scale app_name -i 2
+
+                                # record the subdomain (host) for your app
+                                cf routes
+
+                                # push the new app version by declaring
+                                # your production route as `subdomain-temp`
+                                cf push app_name-v2 \
+                                -p ./app-v2.jar \
+                                -m 768M \
+                                --hostname initial_app_hostname-temp \
+                                --no-start
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+
+						<br> Bind app to service and map routes:
+						<p>
+
+							<code>
+                                # bind the new version app to
+                                # any dependency apps the old app has
+                                cf bind-service app_name-v2 app_name
+
+                                cf start app_name-v2
+
+                                # map production route to the new app v2
+                                cf map-route app_name-v2 \
+                                initial_app_domain \
+                                --hostname initial_app_hostname \
+                                [--port public_facing_port_to_the_app]
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+
+						<br> Redirect app traffic to the new version app:
+						<p>
+
+							<code>
+                                # scale down your initial app
+                                cf scale initial_app_name -i 1
+
+                                # scale out your new app and you will see most traffic
+                                # leaning in favor for this app
+                                cf scale app_name-v2 -i 2
+
+                                # to cut over from the old app,
+                                # unmap the public route from your old app,
+                                # thus moving all traffic to app v2
+                                cf unmap-route initial_app_name initial_app_domain \
+                                -n initial_app_hostname
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+
+						<br> Make sure to cleanup after your blue-green deployment:
+						<p>
+
+							<code>
+                                # cleanup by unmapping the temporary route
+                                cf unmap-route app_name-v2 initial_app_domain \
+                                -n initial_app_hostname-temp
+
+                                # delete the old app
+                                cf delete app_name
+
+                                #rename app v2 to app_name
+                                cf rename app_name-v2 app_name
+
+                                # restart the app
+                                cf restart app_name
+
+                                # scale down
+                                cf scale app_name -i 1
+                            </code>
+						</p>
+						</section>
+					</section>
+
+
+				<section>
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						### Autoscaling and Performance Testing
+					</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Provision an autoscaler service instance
+						<br> Automatic app scaler service can be found on the marketplace. They will look at your app metrics and scale the app
+						up or down on your behalf during periods of higher and lower traffic.
+						<p>
+
+							<code data-trim>
+                                cf create-service app-autoscaler \
+                                market_service_plan_name \
+                                service_name
+
+                                # bind the created service to the app you want
+                                cf bind-service app_name service_name
+
+                                # restart your app
+                                cf restart app_name
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Generate load on your app
+						<br> - for performance testing and to see the autoscaler work:
+						<p>
+
+							<code data-trim>
+                                cf m -s loadimpact
+                            </code>
+						</p>
+						</section>
+					</section>
+
+
+				<section>
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						### Monitor your app
+					</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Check app status/health
+						<br>
+						<p>
+
+							<code data-trim>
+                                cf app app_name
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Troubleshoot app instances
+						<br> Or how to view app events:
+						<p>
+
+							<code data-trim>
+                                cf events app_name
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### View app logs
+						<br>
+						<p>
+
+							<code data-trim lang="bash">
+                                # view most recent logs
+                                cf logs app_name --recent
+
+                                # tail the logs = view logs in real-time
+                                cf logs app_name
+
+                                # filters logs containing API (Cloud Controller logs)
+                                # and CELL (Diego Cell logs);
+                                # observe this when you scale up & down/out your app
+                                cf logs app_name | grep "API\|CELL"
+                                # on Windows:
+                                cf logs app_name | findstr "API CELL"
+
+                                # filter logs excluding Router logs
+                                cf logs app_name | grep -v RTR
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Monitor app state
+						<br> A better way for monitoring the state of your app, including your app instances and their CPU usage is via CF CLI
+						plugin:
+						<p>
+
+							<code data-trim>
+                                # head over to CF plugins catalog:
+                                # https://plugins.cloudfoundry.org/
+                                cf top
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Monitor app performance
+						<br> CF integrates well with application performance monitoring solutions like NewRelic or AppDynamics.
+						<p>
+
+							<code>
+                                # these solutions add overhead to your app
+                                # so you need to scale up your app in terms of memory
+                                cf scale app_name -m 1G -i 1
+
+                                cf create-user-provided-service newrelic_service_name \
+                                -p newrelic_license_key
+                                # ! newrelic_service_name must be `newrelic`
+                                # OR use the newrelic marketplace service:
+                                cf create-service newrelic standard newrelic_service_name
+
+                                cf bind-service app_to_hook_name newrelic_service_name
+
+                                # restage app so that droplet can be rebuilt
+                                # to include the agent
+                                cf restage app_name
+                            </code>
+						</p>
+
+						Note:                         If you no longer need this service, don't forget to unbind it from
+						your apps, delete it, scale down your apps memory and restage your apps.
+					</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### PCF Metrics (in Beta state)
+						<br> Visit the following interface to see app events, metrics (cpu, memory, network) and logs in this monitor view: http://metrics.our_system_domain
+						<br> (**our_system_domain = cfapps.io** in this case)
+
+						<br> [PWS Metrics doc](http://docs.run.pivotal.io/metrics/using.html)
+
+						<br> [PCF Metrics doc](http://docs.pivotal.io/pcf-metrics/using.html)
+					</section>
+					</section>
+
+
+				<section>
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						### Buildpacks
+					</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Explore system buildpacks
+						<br> Buildpacks produce the droplet needed to run our app.
+						<p>
+
+							<code>
+                                cf buildpacks
+                            </code>
+						</p>
+
+						Note:                         You have the option to use custom buildpacks as well.
+					</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Specify a custom buildpack
+						<br>
+						<p>
+
+							<code>
+                                # deploy an app with the latest custom buildpack
+                                cf push app_name -p artifact_path \
+                                -b custom_buildpack_git_repo
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Configure the Java runtime that the Java buildpack provisions for your app
+						<br> The system provided Java buildpack is offline, with a limited set of dependencies. For both the online and offline
+						packages, unless the Java version is specified, the app is run with the latest Java version available to the buildpack.
+						<p>
+
+							<code>
+                                # set env variables that you want your app to read
+                                cf set-end app_name JBP_CONFIG_OPEN_JDK_JRE \
+                                "{jre: { version: your_desired_version}}"
+                                # where e.g. your_desired_version = 1.8.0_45
+
+                                # the droplet needs to be rebuilt
+                                cf restage app_name
+                            </code>
+						</p>
+						</section>
+					</section>
+
+
+				<section>
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						### Service Brokers
+					</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Create a service broker
+						<br> Managed services can easily be plugged in in CF's extensible platform and made available in the service marketplace
+						via the space-scoped service brokers feature. After pushing the service broker app to PCF, set the following env variables:
+						<p>
+
+							<code>
+                                cf set-env service_app_name SERVICE_ID service_broker_id
+                                cf set-env service_app_name SERVICE_NAME service_name
+                                cf set-env service_app_name PLAN_ID service_plan_id
+
+                                cf start service_app_name
+
+                                cf create-service-broker service_broker_name \
+                                username password \
+                                service_app_name_url \
+                                --space-scoped
+                            </code>
+						</p>
+
+						Note:                         Space-scoped brokers are private to a space and don't require an admin
+						to enable access (list it in the marketplace, provision service instances, etc.).
+					</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+
+						<br> If you have created say a MongoDB service broker, and you have provisioned say a MongoDB AWS instance, you have to
+						setup the connectivity to that by defining the **MONGODB_HOST** env variable for your service broker (the hostname
+						or IP address of that AWS instance):
+						<p>
+
+							<code>
+                                cf set-env service_broker_name \
+                                MONGODB_HOST mongodb_aws_instance_ip_address
+
+                                cf set-env service_broker_name \
+                                MONGODB_PASSWORD mongodb_aws_instance_password
+
+                                cf restart service_broker_name
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### List service brokers
+						<br>
+						<p>
+
+							<code>
+                                cf service-brokers
+
+                                # see service broker access level
+                                cf service-access
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Delete a service broker
+						<br>
+						<p>
+
+							<code>
+                                # the service created to bind
+                                # your app to the service-broker
+                                cf delete-service service_name
+
+                                cf delete-service-broker service_broker_name
+
+                                cf delete service_app_name
+                            </code>
+						</p>
+						</section>
+					</section>
+
+
+				<section>
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						### Route Services
+					</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Create a route service
+						<br>
+						<p>
+
+							<code>
+                                cf create-user-provided-service route_service_name \
+                                -r https://uri_to_reach_your_route_service_app
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Bind the route-service to the intercepted app
+						<br>
+						<p>
+
+							<code>
+                                # capture the domain for your route-service and the
+                                # hostname of the app you are going to intercept
+                                cf routes
+
+                                # bind it
+                                cf bind-route-service route_service_domain \
+                                route_service_name \
+                                --hostname app_intercepting_hostname
+                            </code>
+						</p>
+						</section>
+
+
+					<section data-background-image="resources/sunset_clouds.jpg" data-state="dimbg" data-markdown>
+						#### Cleanup
+						<br>
+						<p>
+
+							<code>
+                                cf unbind-route-service route_service_domain \
+                                route_service_name \
+                                --hostname app_intercepting_hostname
+                            </code>
+						</p>
+						</section>
+					</section>
+
+
+				<section>
+					# TODO: Thank You PIC
+				</section>
+				</div>
+			</div>
+
+
+		<script src="lib/js/head.min.js"></script>
+		<script src="js/reveal.js"></script>
+
+		<script>
+			            // More info about config & dependencies:
+			            // - https://github.com/hakimel/reveal.js#configuration
+			            // - https://github.com/hakimel/reveal.js#dependencies
+			            Reveal.initialize({
+				                dependencies: [
+					                    { src: 'plugin/markdown/marked.js' },
+					                    { src: 'plugin/markdown/markdown.js' },
+					                    { src: 'plugin/notes/notes.js', async: true },
+					                    { src: 'plugin/highlight/highlight.js', async: true, callback: function () { hljs.initHighlightingOnLoad(); } }
+				                ]
+			            });
+		</script>
+	</body>
+
+</html>
